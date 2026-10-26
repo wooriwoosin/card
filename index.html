@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>민정 팀케어카드 한도체크</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* 레이아웃: 상단 설정 바 → 카드 2장 나란히(모바일은 세로) → 각 카드 안에 요약 · 수기차감 · 승인내역 */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --fg: #17212b;
+  --muted: #5d6b78;
+  --line: #dde3e9;
+  --accent: #1f5f8b;
+  --accent-soft: #e3eef6;
+  --ok: #1e7a4c;
+  --warn: #b26b00;
+  --bad: #c0392b;
+  --minus: #8a3ea8;
+  --minus-soft: #f3e8f7;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11171d; --surface: #19212a; --fg: #e6ecf1; --muted: #93a2b0; --line: #2b3640;
+    --accent: #6cb1e0; --accent-soft: #1d3346; --ok: #4cc38a; --warn: #e3a440; --bad: #ef6f61;
+    --minus: #c99be0; --minus-soft: #33243d; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11171d; --surface: #19212a; --fg: #e6ecf1; --muted: #93a2b0; --line: #2b3640;
+  --accent: #6cb1e0; --accent-soft: #1d3346; --ok: #4cc38a; --warn: #e3a440; --bad: #ef6f61;
+  --minus: #c99be0; --minus-soft: #33243d; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 48px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 20px; }
+header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+h1 { margin: 0; font-size: 1.6rem; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+.period { color: var(--muted); font-size: .9rem; }
+.period b { color: var(--fg); font-weight: 500; }
+.sample { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 99px; background: var(--minus-soft); color: var(--minus); font-size: .75rem; font-weight: 700; }
+
+.bar { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: end; }
+.field { display: grid; gap: 4px; }
+.field label { font-size: .75rem; color: var(--muted); letter-spacing: .04em; font-weight: 500; }
+input[type="text"], input[type="number"] {
+  font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; width: 100%;
+}
+input:focus-visible, button:focus-visible, .upload:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.limit-input { font-family: var(--font-num); text-align: right; width: 170px; }
+.upload { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; background: var(--accent); color: var(--surface); font-weight: 700; border-radius: 6px; padding: 8px 14px; }
+.upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.hint { font-size: .8rem; color: var(--muted); flex-basis: 100%; margin: 0; }
+.err { color: var(--bad); font-weight: 500; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 20px; align-items: start; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; min-width: 0; }
+.card-head { padding: 16px 18px; display: grid; gap: 14px; border-bottom: 1px solid var(--line); }
+.card-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.card-title h2 { margin: 0; font-size: 1.05rem; }
+.card-no { font-family: var(--font-num); color: var(--muted); letter-spacing: .08em; }
+.card-no b { color: var(--fg); }
+.state { font-size: .75rem; font-weight: 700; padding: 2px 9px; border-radius: 99px; }
+.state.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.state.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.state.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.state.none { color: var(--muted); background: var(--bg); }
+
+.remain { display: grid; gap: 2px; }
+.remain small { color: var(--muted); font-size: .78rem; }
+.remain .big { font-family: var(--font-num); font-size: 2rem; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.remain .big.neg { color: var(--bad); }
+.meter { height: 8px; background: var(--bg); border-radius: 99px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .3s; }
+.meter i.warn { background: var(--warn); } .meter i.bad { background: var(--bad); }
+.calc { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; font-size: .88rem; margin: 0; }
+.calc dt { color: var(--muted); }
+.calc dd { margin: 0; text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.calc .minus { color: var(--minus); }
+.calc .total { border-top: 1px solid var(--line); padding-top: 4px; font-weight: 700; color: var(--fg); }
+
+.section { padding: 14px 18px; display: grid; gap: 10px; border-bottom: 1px solid var(--line); }
+.section h3 { margin: 0; font-size: .8rem; color: var(--muted); letter-spacing: .04em; font-weight: 700; }
+.manual-form { display: grid; grid-template-columns: 1fr 120px auto; gap: 8px; }
+.manual-form input[type="number"] { font-family: var(--font-num); text-align: right; }
+button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 6px 12px; }
+.btn-minus { background: var(--minus); border-color: var(--minus); color: var(--surface); font-weight: 700; }
+.manual-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.manual-list li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; font-size: .88rem; background: var(--minus-soft); border-radius: 6px; padding: 5px 6px 5px 10px; }
+.manual-list .amt { font-family: var(--font-num); color: var(--minus); }
+.x { border: 0; background: transparent; color: var(--muted); padding: 2px 8px; }
+.empty { color: var(--muted); font-size: .85rem; margin: 0; }
+
+.tx-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+th { text-align: left; font-size: .72rem; color: var(--muted); font-weight: 700; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+td.d { font-family: var(--font-num); color: var(--muted); white-space: nowrap; font-size: .8rem; }
+td.m { min-width: 140px; }
+td.a { text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+th.a { text-align: right; }
+td.c { text-align: center; white-space: nowrap; }
+.tag { font-size: .68rem; padding: 0 6px; border-radius: 4px; margin-left: 4px; white-space: nowrap; }
+.tag.pend { color: var(--warn); border: 1px solid currentColor; }
+.tag.cancel { color: var(--muted); border: 1px solid currentColor; }
+tr.cancelled td { color: var(--muted); }
+tr.cancelled td.a { text-decoration: line-through; }
+tr.excluded { background: var(--minus-soft); }
+tr.excluded td.a { color: var(--minus); text-decoration: line-through; }
+.toggle { font-size: .78rem; padding: 3px 10px; white-space: nowrap; }
+tr.excluded .toggle { background: var(--minus); border-color: var(--minus); color: var(--surface); }
+@media (max-width: 520px) {
+  .manual-form { grid-template-columns: 1fr 100px; }
+  .manual-form button { grid-column: 1 / -1; }
+  .limit-input { width: 140px; }
+}
+@media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>민정 팀케어카드 한도체크</h1>
+      <div class="period" id="period">조회기간 <b>—</b></div>
+    </div>
+  </header>
+
+  <div class="bar">
+    <div class="field">
+      <label for="limit-8341">8341 한도 (원)</label>
+      <input class="limit-input" id="limit-8341" type="text" inputmode="numeric" placeholder="예: 1,000,000">
+    </div>
+    <div class="field">
+      <label for="limit-5152">5152 한도 (원)</label>
+      <input class="limit-input" id="limit-5152" type="text" inputmode="numeric" placeholder="예: 1,000,000">
+    </div>
+    <label class="upload" for="file">카드사 엑셀 불러오기
+      <input id="file" type="file" accept=".xls,.xlsx,.csv">
+    </label>
+    <p class="hint" id="hint">카드사에서 받은 승인내역 엑셀(.xls)을 올리면 8341 · 5152 내역만 골라 계산해요. 파일은 이 브라우저 안에서만 읽고 어디에도 저장하지 않아요.</p>
+  </div>
+
+  <div class="cards" id="cards"></div>
+</div>
+
+<script>
+const CARDS = ['8341', '5152'];
+const won = n => (n < 0 ? '-' : '') + Math.abs(Math.round(n)).toLocaleString('ko-KR') + '원';
+const num = s => Number(String(s).replace(/[^\d.-]/g, '')) || 0;
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+
+// 상태: 한도와 제외 표시는 편의상 이 브라우저에만 기억(다음 달 파일을 다시 올려도 승인번호로 유지)
+const state = {
+  limits: store.get('tc.limits', { '8341': 0, '5152': 0 }),
+  excluded: new Set(store.get('tc.excluded', [])),
+  manual: { '8341': [], '5152': [] },
+  tx: [],
+  period: '',
+  isSample: true
+};
+
+// 예시 데이터 (엑셀을 올리면 교체됨)
+const SAMPLE = {
+  period: '2026.10.01 ~ 2026.10.26',
+  tx: [
+    ['10.24 01:16','8341','예시) 회식 2차','24000','접수'],
+    ['10.23 20:31','8341','예시) 팀 회식','297000','미접수'],
+    ['10.24 01:33','8341','예시) 택시 (취소)','29,000 \n (-29,000)','미접수'],
+    ['10.21 13:52','8341','예시) 카페','15100','접수'],
+    ['10.16 12:53','8341','예시) 점심','196100','접수'],
+    ['10.06 11:39','5152','예시) 쿠팡 비품 (다른 한도)','389460','접수'],
+    ['10.14 12:49','5152','예시) 점심','65800','접수'],
+    ['10.08 09:47','5152','예시) 커피','41800','접수']
+  ].map((r, i) => makeTx(r[0], r[1], r[2], r[3], r[4], 'sample-' + i))
+};
+
+function makeTx(date, card, merchant, rawAmt, status, approval) {
+  const s = String(rawAmt);
+  const m = s.match(/\(\s*-\s*([\d,]+)\s*\)/);       // "29,000 \n (-29,000)" = 승인 후 취소
+  const amount = num(s.split(/\n|\(/)[0]);
+  const cancelAmt = m ? num(m[1]) : 0;
+  return { date, card, merchant, amount, net: amount - cancelAmt, cancelled: cancelAmt > 0 && cancelAmt >= amount, status, id: card + '-' + approval };
+}
+
+function parseSheet(rows) {
+  let hdr = null, period = '';
+  const tx = [];
+  for (const r of rows) {
+    const cells = r.map(c => (c == null ? '' : String(c).trim()));
+    if (!period) { const p = cells.find(c => /^\d{4}\.\d{2}\.\d{2}\s*~\s*\d{4}\.\d{2}\.\d{2}$/.test(c)); if (p) period = p; }
+    if (cells[0] === '이용일자') {           // 페이지마다 반복되는 헤더행
+      const find = re => cells.findIndex(c => re.test(c));
+      hdr = { date: 0, appr: find(/^승인번호/), card: find(/^이용카드/), merch: find(/^이용가맹점/), amt: find(/^승인금액\s*\//), status: find(/^접수/) };
+      continue;
+    }
+    if (!hdr || !/^\d{2}\.\d{2}/.test(cells[0])) continue;
+    const card = cells[hdr.card];
+    if (!CARDS.includes(card)) continue;
+    tx.push(makeTx(cells[0], card, cells[hdr.merch], r[hdr.amt], cells[hdr.status] || '', cells[hdr.appr] || cells[0]));
+  }
+  return { period, tx };
+}
+
+function loadFile(file) {
+  const hint = document.getElementById('hint');
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+      const { period, tx } = parseSheet(rows);
+      if (!tx.length) { hint.innerHTML = '<span class="err">8341 · 5152 승인내역을 찾지 못했어요. 카드사 "승인내역 조회" 엑셀이 맞는지 확인해 주세요.</span>'; return; }
+      state.tx = tx; state.period = period; state.isSample = false;
+      state.manual = { '8341': [], '5152': [] };
+      hint.textContent = `${file.name} 불러옴 · 8341 ${tx.filter(t => t.card === '8341').length}건, 5152 ${tx.filter(t => t.card === '5152').length}건`;
+      render();
+    } catch (err) {
+      hint.innerHTML = '<span class="err">파일을 읽지 못했어요. 카드사에서 받은 원본 엑셀(.xls)을 그대로 올려 주세요.</span>';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function totals(card) {
+  const list = state.tx.filter(t => t.card === card);
+  const used = list.reduce((s, t) => s + t.net, 0);
+  const excl = list.filter(t => state.excluded.has(t.id)).reduce((s, t) => s + t.net, 0);
+  const manual = state.manual[card].reduce((s, m) => s + m.amount, 0);
+  const team = used - excl - manual;
+  const limit = state.limits[card] || 0;
+  return { list, used, excl, manual, team, limit, remain: limit - team };
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function cardHTML(card) {
+  const t = totals(card);
+  const pct = t.limit ? Math.max(0, Math.min(100, t.team / t.limit * 100)) : 0;
+  const lvl = !t.limit ? 'none' : t.remain < 0 ? 'bad' : pct >= 80 ? 'warn' : 'ok';
+  const label = { none: '한도 미입력', ok: `${pct.toFixed(0)}% 사용`, warn: `${pct.toFixed(0)}% 사용 · 주의`, bad: '한도 초과' }[lvl];
+  const rows = t.list.map(x => {
+    const ex = state.excluded.has(x.id);
+    const cls = x.cancelled ? 'cancelled' : ex ? 'excluded' : '';
+    const tags = (x.cancelled ? '<span class="tag cancel">취소</span>' : '') + (!x.cancelled && x.status === '미접수' ? '<span class="tag pend">미접수</span>' : '');
+    const btn = x.cancelled ? '' : `<button class="toggle" data-id="${esc(x.id)}" aria-pressed="${ex}">${ex ? '제외됨' : '제외'}</button>`;
+    return `<tr class="${cls}"><td class="d">${esc(x.date)}</td><td class="m">${esc(x.merchant)}${tags}</td><td class="a">${won(x.cancelled ? x.amount : x.net)}</td><td class="c">${btn}</td></tr>`;
+  }).join('');
+  const manual = state.manual[card].map((m, i) =>
+    `<li><span>${esc(m.memo || '수기 차감')}</span><span class="amt">-${won(m.amount)}</span><button class="x" data-card="${card}" data-i="${i}" aria-label="삭제">×</button></li>`).join('');
+  return `
+  <article class="card">
+    <div class="card-head">
+      <div class="card-title"><h2>법인카드 <span class="card-no">**** <b>${card}</b></span></h2><span class="state ${lvl}">${label}</span></div>
+      <div class="remain"><small>팀케어 잔여한도</small><div class="big ${t.limit && t.remain < 0 ? 'neg' : ''}">${t.limit ? won(t.remain) : '—'}</div></div>
+      <div class="meter"><i class="${lvl === 'bad' ? 'bad' : lvl === 'warn' ? 'warn' : ''}" style="width:${pct}%"></i></div>
+      <dl class="calc">
+        <dt>카드 총 사용 (${t.list.filter(x => !x.cancelled).length}건, 취소 제외)</dt><dd>${won(t.used)}</dd>
+        <dt>다른 한도 사용 (제외 표시)</dt><dd class="minus">${t.excl ? '-' + won(t.excl) : '0원'}</dd>
+        <dt>수기 차감</dt><dd class="minus">${t.manual ? '-' + won(t.manual) : '0원'}</dd>
+        <dt class="total">팀케어 사용액</dt><dd class="total">${won(t.team)}</dd>
+        <dt>한도</dt><dd>${t.limit ? won(t.limit) : '미입력'}</dd>
+      </dl>
+    </div>
+    <div class="section">
+      <h3>수기 차감 (마이너스)</h3>
+      <form class="manual-form" data-card="${card}">
+        <input type="text" id="memo-${card}" placeholder="메모 (예: 비품 일부)" aria-label="메모">
+        <input type="number" id="amt-${card}" min="1" step="1" placeholder="금액" aria-label="차감 금액" required>
+        <button class="btn-minus" type="submit">− 빼기</button>
+      </form>
+      ${manual ? `<ul class="manual-list">${manual}</ul>` : '<p class="empty">건 전체가 아니라 일부 금액만 뺄 때 쓰세요. 건 전체는 아래 목록에서 "제외"를 누르면 돼요.</p>'}
+    </div>
+    <div class="tx-wrap">
+      <table>
+        <thead><tr><th>이용일시</th><th>가맹점</th><th class="a">금액</th><th></th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="4" class="empty">이 카드의 승인내역이 없어요.</td></tr>'}</tbody>
+      </table>
+    </div>
+  </article>`;
+}
+
+function render() {
+  document.getElementById('period').innerHTML = `조회기간 <b>${esc(state.period || '—')}</b>${state.isSample ? '<span class="sample">예시 데이터</span>' : ''}`;
+  document.getElementById('cards').innerHTML = CARDS.map(cardHTML).join('');
+}
+
+// 이벤트
+for (const card of CARDS) {
+  const el = document.getElementById('limit-' + card);
+  el.value = state.limits[card] ? state.limits[card].toLocaleString('ko-KR') : '';
+  el.addEventListener('input', () => {
+    const v = num(el.value);
+    state.limits[card] = v;
+    el.value = v ? v.toLocaleString('ko-KR') : '';
+    store.set('tc.limits', state.limits);
+    render();
+  });
+}
+document.getElementById('file').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; });
+document.getElementById('cards').addEventListener('click', e => {
+  const tg = e.target.closest('.toggle');
+  if (tg) {
+    const id = tg.dataset.id;
+    state.excluded.has(id) ? state.excluded.delete(id) : state.excluded.add(id);
+    store.set('tc.excluded', [...state.excluded].filter(k => !k.includes('sample-')));
+    render(); return;
+  }
+  const x = e.target.closest('.x');
+  if (x) { state.manual[x.dataset.card].splice(+x.dataset.i, 1); render(); }
+});
+document.getElementById('cards').addEventListener('submit', e => {
+  e.preventDefault();
+  const card = e.target.dataset.card;
+  const amount = num(document.getElementById('amt-' + card).value);
+  if (amount <= 0) return;
+  state.manual[card].push({ memo: document.getElementById('memo-' + card).value.trim(), amount });
+  render();
+});
+
+state.tx = SAMPLE.tx; state.period = SAMPLE.period;
+render();
+</script>
+</body>
+</html>
