@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
-/* 레이아웃: 상단 설정 바 → 카드 2장 나란히(모바일은 세로) → 각 카드 안에 요약 · 수기차감 · 승인내역 */
+/* 레이아웃: 설정 바(한도 + 엑셀 2개) → 유통사업부 합계 요약 → 수기 차감 → 카드별 승인내역 */
 :root {
   --bg: #f3f5f7;
   --surface: #ffffff;
@@ -17,7 +17,6 @@
   --muted: #5d6b78;
   --line: #dde3e9;
   --accent: #1f5f8b;
-  --accent-soft: #e3eef6;
   --ok: #1e7a4c;
   --warn: #b26b00;
   --bad: #c0392b;
@@ -29,13 +28,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #11171d; --surface: #19212a; --fg: #e6ecf1; --muted: #93a2b0; --line: #2b3640;
-    --accent: #6cb1e0; --accent-soft: #1d3346; --ok: #4cc38a; --warn: #e3a440; --bad: #ef6f61;
+    --accent: #6cb1e0; --ok: #4cc38a; --warn: #e3a440; --bad: #ef6f61;
     --minus: #c99be0; --minus-soft: #33243d; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #11171d; --surface: #19212a; --fg: #e6ecf1; --muted: #93a2b0; --line: #2b3640;
-  --accent: #6cb1e0; --accent-soft: #1d3346; --ok: #4cc38a; --warn: #e3a440; --bad: #ef6f61;
+  --accent: #6cb1e0; --ok: #4cc38a; --warn: #e3a440; --bad: #ef6f61;
   --minus: #c99be0; --minus-soft: #33243d; color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -45,54 +44,52 @@ body {
   padding-block: 24px 48px;
 }
 .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 20px; }
-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
 h1 { margin: 0; font-size: 1.6rem; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
-.period { color: var(--muted); font-size: .9rem; }
+.period { color: var(--muted); font-size: .9rem; min-height: 1.4em; }
 .period b { color: var(--fg); font-weight: 500; }
-.sample { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 99px; background: var(--minus-soft); color: var(--minus); font-size: .75rem; font-weight: 700; }
 
-.bar { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: end; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
+.bar { padding: 16px; display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: start; }
 .field { display: grid; gap: 4px; }
-.field label { font-size: .75rem; color: var(--muted); letter-spacing: .04em; font-weight: 500; }
-input[type="text"], input[type="number"] {
+.field > label, .field > span { font-size: .75rem; color: var(--muted); letter-spacing: .04em; font-weight: 500; }
+input[type="text"], input[type="number"], select {
   font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; width: 100%;
 }
-input:focus-visible, button:focus-visible, .upload:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
-.limit-input { font-family: var(--font-num); text-align: right; width: 170px; }
-.upload { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; background: var(--accent); color: var(--surface); font-weight: 700; border-radius: 6px; padding: 8px 14px; }
+input:focus-visible, button:focus-visible, select:focus-visible, .upload:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.limit-input { font-family: var(--font-num); text-align: right; width: 200px; }
+.slot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.upload { position: relative; display: inline-flex; align-items: center; cursor: pointer; background: var(--accent); color: var(--surface); font-weight: 700; border-radius: 6px; padding: 7px 14px; white-space: nowrap; }
+.upload.loaded { background: var(--surface); color: var(--accent); border: 1px solid var(--accent); padding: 6px 13px; }
 .upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.fname { font-size: .82rem; color: var(--muted); max-width: 260px; overflow-wrap: anywhere; }
+.fname b { color: var(--fg); font-weight: 500; }
 .hint { font-size: .8rem; color: var(--muted); flex-basis: 100%; margin: 0; }
 .err { color: var(--bad); font-weight: 500; }
 
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 20px; align-items: start; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; min-width: 0; }
-.card-head { padding: 16px 18px; display: grid; gap: 14px; border-bottom: 1px solid var(--line); }
-.card-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.card-title h2 { margin: 0; font-size: 1.05rem; }
-.card-no { font-family: var(--font-num); color: var(--muted); letter-spacing: .08em; }
-.card-no b { color: var(--fg); }
-.state { font-size: .75rem; font-weight: 700; padding: 2px 9px; border-radius: 99px; }
+.summary { padding: 18px; display: grid; gap: 14px; }
+.sum-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 12px; }
+.remain { display: grid; gap: 2px; }
+.remain small { color: var(--muted); font-size: .8rem; }
+.remain .big { font-family: var(--font-num); font-size: 2.2rem; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.remain .big.neg { color: var(--bad); }
+.state { font-size: .78rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; }
 .state.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
 .state.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
 .state.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
 .state.none { color: var(--muted); background: var(--bg); }
-
-.remain { display: grid; gap: 2px; }
-.remain small { color: var(--muted); font-size: .78rem; }
-.remain .big { font-family: var(--font-num); font-size: 2rem; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.remain .big.neg { color: var(--bad); }
 .meter { height: 8px; background: var(--bg); border-radius: 99px; overflow: hidden; }
 .meter i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .3s; }
 .meter i.warn { background: var(--warn); } .meter i.bad { background: var(--bad); }
-.calc { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; font-size: .88rem; margin: 0; }
+.sum-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px 32px; }
+.calc { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; font-size: .88rem; margin: 0; align-content: start; }
 .calc dt { color: var(--muted); }
 .calc dd { margin: 0; text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 .calc .minus { color: var(--minus); }
 .calc .total { border-top: 1px solid var(--line); padding-top: 4px; font-weight: 700; color: var(--fg); }
 
-.section { padding: 14px 18px; display: grid; gap: 10px; border-bottom: 1px solid var(--line); }
-.section h3 { margin: 0; font-size: .8rem; color: var(--muted); letter-spacing: .04em; font-weight: 700; }
-.manual-form { display: grid; grid-template-columns: 1fr 120px auto; gap: 8px; }
+.section { padding: 14px 18px; display: grid; gap: 10px; }
+.section h3, .card-head h2 { margin: 0; font-size: .82rem; color: var(--muted); letter-spacing: .04em; font-weight: 700; }
+.manual-form { display: grid; grid-template-columns: 1fr 140px auto; gap: 8px; }
 .manual-form input[type="number"] { font-family: var(--font-num); text-align: right; }
 button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 6px 12px; }
 .btn-minus { background: var(--minus); border-color: var(--minus); color: var(--surface); font-weight: 700; }
@@ -100,17 +97,23 @@ button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid v
 .manual-list li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; font-size: .88rem; background: var(--minus-soft); border-radius: 6px; padding: 5px 6px 5px 10px; }
 .manual-list .amt { font-family: var(--font-num); color: var(--minus); }
 .x { border: 0; background: transparent; color: var(--muted); padding: 2px 8px; }
-.empty { color: var(--muted); font-size: .85rem; margin: 0; }
+.empty { color: var(--muted); font-size: .88rem; margin: 0; }
+.start { padding: 40px 18px; text-align: center; }
 
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 20px; align-items: start; }
+.card { overflow: hidden; }
+.card-head { padding: 14px 18px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; border-bottom: 1px solid var(--line); }
+.card-head h2 { font-size: 1rem; color: var(--fg); letter-spacing: 0; }
+.card-no { font-family: var(--font-num); color: var(--muted); letter-spacing: .06em; font-weight: 500; margin-left: 6px; }
+.card-sum { font-family: var(--font-num); font-weight: 600; font-variant-numeric: tabular-nums; }
+.card-sum small { display: block; text-align: right; font-family: var(--font-body); font-weight: 400; color: var(--minus); font-size: .75rem; }
 .tx-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: .88rem; }
-th { text-align: left; font-size: .72rem; color: var(--muted); font-weight: 700; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 tr:last-child td { border-bottom: 0; }
 td.d { font-family: var(--font-num); color: var(--muted); white-space: nowrap; font-size: .8rem; }
 td.m { min-width: 140px; }
 td.a { text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
-th.a { text-align: right; }
 td.c { text-align: center; white-space: nowrap; }
 .tag { font-size: .68rem; padding: 0 6px; border-radius: 4px; margin-left: 4px; white-space: nowrap; }
 .tag.pend { color: var(--warn); border: 1px solid currentColor; }
@@ -122,9 +125,10 @@ tr.excluded td.a { color: var(--minus); text-decoration: line-through; }
 .toggle { font-size: .78rem; padding: 3px 10px; white-space: nowrap; }
 tr.excluded .toggle { background: var(--minus); border-color: var(--minus); color: var(--surface); }
 @media (max-width: 520px) {
-  .manual-form { grid-template-columns: 1fr 100px; }
+  .manual-form { grid-template-columns: 1fr 110px; }
   .manual-form button { grid-column: 1 / -1; }
-  .limit-input { width: 140px; }
+  .limit-input { width: 100%; }
+  .field { flex-basis: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
 </style>
@@ -132,71 +136,84 @@ tr.excluded .toggle { background: var(--minus); border-color: var(--minus); colo
 <body>
 <div class="wrap">
   <header>
-    <div>
-      <h1>민정 팀케어카드 한도체크</h1>
-      <div class="period" id="period">조회기간 <b>—</b></div>
-    </div>
+    <h1>민정 팀케어카드 한도체크</h1>
+    <div class="period" id="period"></div>
   </header>
 
-  <div class="bar">
+  <div class="panel bar">
     <div class="field">
-      <label for="limit-8341">8341 한도 (원)</label>
-      <input class="limit-input" id="limit-8341" type="text" inputmode="numeric" placeholder="예: 1,000,000">
+      <label for="limit">유통사업부 팀케어 한도 (원)</label>
+      <input class="limit-input" id="limit" type="text" inputmode="numeric" autocomplete="off">
     </div>
     <div class="field">
-      <label for="limit-5152">5152 한도 (원)</label>
-      <input class="limit-input" id="limit-5152" type="text" inputmode="numeric" placeholder="예: 1,000,000">
+      <span>카드사 엑셀 1</span>
+      <div class="slot"><label class="upload" id="up-0" for="file-0">파일 선택<input id="file-0" type="file" accept=".xls,.xlsx,.csv"></label><span class="fname" id="fname-0"></span></div>
     </div>
-    <label class="upload" for="file">카드사 엑셀 불러오기
-      <input id="file" type="file" accept=".xls,.xlsx,.csv">
-    </label>
-    <p class="hint" id="hint">카드사에서 받은 승인내역 엑셀(.xls)을 올리면 8341 · 5152 내역만 골라 계산해요. 파일은 이 브라우저 안에서만 읽고 어디에도 저장하지 않아요.</p>
+    <div class="field">
+      <span>카드사 엑셀 2</span>
+      <div class="slot"><label class="upload" id="up-1" for="file-1">파일 선택<input id="file-1" type="file" accept=".xls,.xlsx,.csv"></label><span class="fname" id="fname-1"></span></div>
+    </div>
+    <p class="hint" id="hint">카드사 승인내역 엑셀 2개를 올리면 유통사업부 카드 5장(8341 · 5152 · 규림 1645 · 담민 6116 · 은영 0273) 내역만 골라 한도 하나로 합산해요. 파일은 이 브라우저 안에서만 읽고 어디에도 저장하지 않아요.</p>
   </div>
 
-  <div class="cards" id="cards"></div>
+  <div id="main"></div>
 </div>
 
 <script>
-const CARDS = ['8341', '5152'];
+// 유통사업부 한도에 포함되는 카드 (끝 4자리)
+const CARDS = [
+  { no: '8341', name: '법인카드' },
+  { no: '5152', name: '법인카드' },
+  { no: '1645', name: '규림' },
+  { no: '6116', name: '담민' },
+  { no: '0273', name: '은영' }
+];
+const CARD_NOS = CARDS.map(c => c.no);
+
 const won = n => (n < 0 ? '-' : '') + Math.abs(Math.round(n)).toLocaleString('ko-KR') + '원';
+const minusWon = n => n ? '-' + won(n) : '0원';
 const num = s => Number(String(s).replace(/[^\d.-]/g, '')) || 0;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-const store = {
-  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
-};
-
-// 상태: 한도와 제외 표시는 편의상 이 브라우저에만 기억(다음 달 파일을 다시 올려도 승인번호로 유지)
 const state = {
-  limits: store.get('tc.limits', { '8341': 0, '5152': 0 }),
-  excluded: new Set(store.get('tc.excluded', [])),
-  manual: { '8341': [], '5152': [] },
-  tx: [],
-  period: '',
-  isSample: true
+  limit: 0,
+  files: [null, null],       // { name, period, tx }
+  excluded: new Set(),
+  manual: []
 };
 
-// 예시 데이터 (엑셀을 올리면 교체됨)
-const SAMPLE = {
-  period: '2026.10.01 ~ 2026.10.26',
-  tx: [
-    ['10.24 01:16','8341','예시) 회식 2차','24000','접수'],
-    ['10.23 20:31','8341','예시) 팀 회식','297000','미접수'],
-    ['10.24 01:33','8341','예시) 택시 (취소)','29,000 \n (-29,000)','미접수'],
-    ['10.21 13:52','8341','예시) 카페','15100','접수'],
-    ['10.16 12:53','8341','예시) 점심','196100','접수'],
-    ['10.06 11:39','5152','예시) 쿠팡 비품 (다른 한도)','389460','접수'],
-    ['10.14 12:49','5152','예시) 점심','65800','접수'],
-    ['10.08 09:47','5152','예시) 커피','41800','접수']
-  ].map((r, i) => makeTx(r[0], r[1], r[2], r[3], r[4], 'sample-' + i))
-};
+function last4(cell) {
+  const d = String(cell).replace(/\D/g, '');
+  return d.length >= 4 ? d.slice(-4) : '';
+}
 
 function makeTx(date, card, merchant, rawAmt, status, approval) {
   const s = String(rawAmt);
-  const m = s.match(/\(\s*-\s*([\d,]+)\s*\)/);       // "29,000 \n (-29,000)" = 승인 후 취소
+  const m = s.match(/\(\s*-\s*([\d,]+)\s*\)/);        // "29,000 \n (-29,000)" = 승인 후 취소
   const amount = num(s.split(/\n|\(/)[0]);
   const cancelAmt = m ? num(m[1]) : 0;
-  return { date, card, merchant, amount, net: amount - cancelAmt, cancelled: cancelAmt > 0 && cancelAmt >= amount, status, id: card + '-' + approval };
+  const statusCancel = /취소/.test(status) && !/미취소/.test(status);
+  const net = statusCancel && amount > 0 ? 0 : amount - cancelAmt;
+  return {
+    date, card, merchant, amount, net, status,
+    cancelled: statusCancel || amount < 0 || (cancelAmt > 0 && cancelAmt >= amount),
+    id: card + '|' + (approval || date) + '|' + amount
+  };
+}
+
+// 카드사마다 엑셀 양식이 달라도 헤더 이름으로 열을 찾음
+function findHeader(cells) {
+  const find = (...res) => { for (const re of res) { const i = cells.findIndex(c => re.test(c)); if (i >= 0) return i; } return -1; };
+  const card = find(/^이용카드/, /카드번호/, /^카드$/, /이용카드/);
+  const amt = find(/^승인금액\s*\//, /^승인금액/, /^이용금액/, /^매출금액/, /금액/);
+  if (card < 0 || amt < 0) return null;
+  return {
+    card, amt,
+    date: find(/^이용일/, /^승인일/, /^거래일/, /일자/, /일시/),
+    appr: find(/^승인번호/),
+    merch: find(/가맹점/, /^이용처/),
+    status: find(/^접수/, /취소여부/, /^상태/, /승인구분/, /^구분/)
+  };
 }
 
 function parseSheet(rows) {
@@ -204,137 +221,177 @@ function parseSheet(rows) {
   const tx = [];
   for (const r of rows) {
     const cells = r.map(c => (c == null ? '' : String(c).trim()));
-    if (!period) { const p = cells.find(c => /^\d{4}\.\d{2}\.\d{2}\s*~\s*\d{4}\.\d{2}\.\d{2}$/.test(c)); if (p) period = p; }
-    if (cells[0] === '이용일자') {           // 페이지마다 반복되는 헤더행
-      const find = re => cells.findIndex(c => re.test(c));
-      hdr = { date: 0, appr: find(/^승인번호/), card: find(/^이용카드/), merch: find(/^이용가맹점/), amt: find(/^승인금액\s*\//), status: find(/^접수/) };
-      continue;
-    }
-    if (!hdr || !/^\d{2}\.\d{2}/.test(cells[0])) continue;
-    const card = cells[hdr.card];
-    if (!CARDS.includes(card)) continue;
-    tx.push(makeTx(cells[0], card, cells[hdr.merch], r[hdr.amt], cells[hdr.status] || '', cells[hdr.appr] || cells[0]));
+    if (!period) { const p = cells.find(c => /\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}\s*~\s*\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}/.test(c)); if (p) period = p; }
+    const h = findHeader(cells);
+    if (h && !CARD_NOS.includes(last4(cells[h.card]))) { hdr = h; continue; }   // 페이지마다 반복되는 헤더행 포함
+    if (!hdr) continue;
+    const card = last4(cells[hdr.card]);
+    if (!CARD_NOS.includes(card)) continue;
+    const pick = i => (i >= 0 ? cells[i] : '');
+    tx.push(makeTx(pick(hdr.date), card, pick(hdr.merch), r[hdr.amt], pick(hdr.status), pick(hdr.appr)));
   }
   return { period, tx };
 }
 
-function loadFile(file) {
+function loadFile(slot, file) {
   const hint = document.getElementById('hint');
   const reader = new FileReader();
   reader.onload = e => {
     try {
       const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
-      const { period, tx } = parseSheet(rows);
-      if (!tx.length) { hint.innerHTML = '<span class="err">8341 · 5152 승인내역을 찾지 못했어요. 카드사 "승인내역 조회" 엑셀이 맞는지 확인해 주세요.</span>'; return; }
-      state.tx = tx; state.period = period; state.isSample = false;
-      state.manual = { '8341': [], '5152': [] };
-      hint.textContent = `${file.name} 불러옴 · 8341 ${tx.filter(t => t.card === '8341').length}건, 5152 ${tx.filter(t => t.card === '5152').length}건`;
+      let period = '', tx = [];
+      for (const name of wb.SheetNames) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: '' });
+        const res = parseSheet(rows);
+        period = period || res.period; tx = tx.concat(res.tx);
+      }
+      if (!tx.length) {
+        hint.innerHTML = `<span class="err">${esc(file.name)}에서 유통사업부 카드 승인내역을 찾지 못했어요. 카드사 "승인내역 조회" 엑셀이 맞는지 확인해 주세요.</span>`;
+        return;
+      }
+      state.files[slot] = { name: file.name, period, tx };
+      hint.textContent = '';
       render();
     } catch (err) {
-      hint.innerHTML = '<span class="err">파일을 읽지 못했어요. 카드사에서 받은 원본 엑셀(.xls)을 그대로 올려 주세요.</span>';
+      hint.innerHTML = `<span class="err">${esc(file.name)} 파일을 읽지 못했어요. 카드사에서 받은 원본 엑셀을 그대로 올려 주세요.</span>`;
     }
   };
   reader.readAsArrayBuffer(file);
 }
 
-function totals(card) {
-  const list = state.tx.filter(t => t.card === card);
-  const used = list.reduce((s, t) => s + t.net, 0);
-  const excl = list.filter(t => state.excluded.has(t.id)).reduce((s, t) => s + t.net, 0);
-  const manual = state.manual[card].reduce((s, m) => s + m.amount, 0);
-  const team = used - excl - manual;
-  const limit = state.limits[card] || 0;
-  return { list, used, excl, manual, team, limit, remain: limit - team };
+function allTx() {
+  const seen = new Set(), out = [];
+  for (const f of state.files) {
+    if (!f) continue;
+    for (const t of f.tx) { if (seen.has(t.id)) continue; seen.add(t.id); out.push(t); }   // 두 파일에 같은 건이 있으면 한 번만
+  }
+  return out;
 }
 
-function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function totals(tx) {
+  const used = tx.reduce((s, t) => s + t.net, 0);
+  const excl = tx.filter(t => state.excluded.has(t.id)).reduce((s, t) => s + t.net, 0);
+  return { used, excl, count: tx.filter(t => !t.cancelled).length };
+}
 
-function cardHTML(card) {
-  const t = totals(card);
-  const pct = t.limit ? Math.max(0, Math.min(100, t.team / t.limit * 100)) : 0;
-  const lvl = !t.limit ? 'none' : t.remain < 0 ? 'bad' : pct >= 80 ? 'warn' : 'ok';
-  const label = { none: '한도 미입력', ok: `${pct.toFixed(0)}% 사용`, warn: `${pct.toFixed(0)}% 사용 · 주의`, bad: '한도 초과' }[lvl];
-  const rows = t.list.map(x => {
+function cardHTML(c, list) {
+  const t = totals(list);
+  const rows = list.map(x => {
     const ex = state.excluded.has(x.id);
     const cls = x.cancelled ? 'cancelled' : ex ? 'excluded' : '';
     const tags = (x.cancelled ? '<span class="tag cancel">취소</span>' : '') + (!x.cancelled && x.status === '미접수' ? '<span class="tag pend">미접수</span>' : '');
     const btn = x.cancelled ? '' : `<button class="toggle" data-id="${esc(x.id)}" aria-pressed="${ex}">${ex ? '제외됨' : '제외'}</button>`;
-    return `<tr class="${cls}"><td class="d">${esc(x.date)}</td><td class="m">${esc(x.merchant)}${tags}</td><td class="a">${won(x.cancelled ? x.amount : x.net)}</td><td class="c">${btn}</td></tr>`;
+    return `<tr class="${cls}"><td class="d">${esc(x.date)}</td><td class="m">${esc(x.merchant)}${tags}</td><td class="a">${won(x.amount)}</td><td class="c">${btn}</td></tr>`;
   }).join('');
-  const manual = state.manual[card].map((m, i) =>
-    `<li><span>${esc(m.memo || '수기 차감')}</span><span class="amt">-${won(m.amount)}</span><button class="x" data-card="${card}" data-i="${i}" aria-label="삭제">×</button></li>`).join('');
   return `
-  <article class="card">
+  <article class="panel card">
     <div class="card-head">
-      <div class="card-title"><h2>법인카드 <span class="card-no">**** <b>${card}</b></span></h2><span class="state ${lvl}">${label}</span></div>
-      <div class="remain"><small>팀케어 잔여한도</small><div class="big ${t.limit && t.remain < 0 ? 'neg' : ''}">${t.limit ? won(t.remain) : '—'}</div></div>
-      <div class="meter"><i class="${lvl === 'bad' ? 'bad' : lvl === 'warn' ? 'warn' : ''}" style="width:${pct}%"></i></div>
-      <dl class="calc">
-        <dt>카드 총 사용 (${t.list.filter(x => !x.cancelled).length}건, 취소 제외)</dt><dd>${won(t.used)}</dd>
-        <dt>다른 한도 사용 (제외 표시)</dt><dd class="minus">${t.excl ? '-' + won(t.excl) : '0원'}</dd>
-        <dt>수기 차감</dt><dd class="minus">${t.manual ? '-' + won(t.manual) : '0원'}</dd>
-        <dt class="total">팀케어 사용액</dt><dd class="total">${won(t.team)}</dd>
-        <dt>한도</dt><dd>${t.limit ? won(t.limit) : '미입력'}</dd>
-      </dl>
+      <h2>${esc(c.name)}<span class="card-no">${c.no}</span></h2>
+      <div class="card-sum">${won(t.used - t.excl)}${t.excl ? `<small>제외 ${minusWon(t.excl)}</small>` : ''}</div>
     </div>
-    <div class="section">
-      <h3>수기 차감 (마이너스)</h3>
-      <form class="manual-form" data-card="${card}">
-        <input type="text" id="memo-${card}" placeholder="메모 (예: 비품 일부)" aria-label="메모">
-        <input type="number" id="amt-${card}" min="1" step="1" placeholder="금액" aria-label="차감 금액" required>
-        <button class="btn-minus" type="submit">− 빼기</button>
-      </form>
-      ${manual ? `<ul class="manual-list">${manual}</ul>` : '<p class="empty">건 전체가 아니라 일부 금액만 뺄 때 쓰세요. 건 전체는 아래 목록에서 "제외"를 누르면 돼요.</p>'}
-    </div>
-    <div class="tx-wrap">
-      <table>
-        <thead><tr><th>이용일시</th><th>가맹점</th><th class="a">금액</th><th></th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="4" class="empty">이 카드의 승인내역이 없어요.</td></tr>'}</tbody>
-      </table>
-    </div>
+    <div class="tx-wrap"><table><tbody>${rows || '<tr><td class="empty">불러온 파일에 이 카드 내역이 없어요.</td></tr>'}</tbody></table></div>
   </article>`;
 }
 
 function render() {
-  document.getElementById('period').innerHTML = `조회기간 <b>${esc(state.period || '—')}</b>${state.isSample ? '<span class="sample">예시 데이터</span>' : ''}`;
-  document.getElementById('cards').innerHTML = CARDS.map(cardHTML).join('');
+  const loaded = state.files.filter(Boolean);
+  state.files.forEach((f, i) => {
+    document.getElementById('fname-' + i).innerHTML = f ? `<b>${esc(f.name)}</b> · ${f.tx.length}건` : '';
+    const up = document.getElementById('up-' + i);
+    up.classList.toggle('loaded', !!f);
+    up.firstChild.nodeValue = f ? '다시 선택' : '파일 선택';
+  });
+  const periods = [...new Set(loaded.map(f => f.period).filter(Boolean))];
+  document.getElementById('period').innerHTML = periods.length ? `조회기간 <b>${esc(periods.join(' / '))}</b>` : '';
+
+  const main = document.getElementById('main');
+  if (!loaded.length) {
+    main.innerHTML = '<div class="panel start"><p class="empty">한도를 입력하고 카드사 엑셀을 불러오면 여기에 합계와 카드별 승인내역이 나와요.</p></div>';
+    return;
+  }
+
+  const tx = allTx();
+  const t = totals(tx);
+  const manual = state.manual.reduce((s, m) => s + m.amount, 0);
+  const team = t.used - t.excl - manual;
+  const limit = state.limit;
+  const remain = limit - team;
+  const pct = limit ? Math.max(0, Math.min(100, team / limit * 100)) : 0;
+  const lvl = !limit ? 'none' : remain < 0 ? 'bad' : pct >= 80 ? 'warn' : 'ok';
+  const label = { none: '한도 미입력', ok: `${pct.toFixed(0)}% 사용`, warn: `${pct.toFixed(0)}% 사용 · 주의`, bad: '한도 초과' }[lvl];
+
+  const byCard = CARDS.map(c => {
+    const list = tx.filter(x => x.card === c.no);
+    const s = totals(list);
+    return { c, list, net: s.used - s.excl };
+  });
+
+  const manualItems = state.manual.map((m, i) =>
+    `<li><span>${esc(m.memo || '수기 차감')}</span><span class="amt">-${won(m.amount)}</span><button class="x" data-i="${i}" aria-label="삭제">×</button></li>`).join('');
+
+  main.innerHTML = `
+  <div style="display:grid;gap:20px">
+    <section class="panel summary">
+      <div class="sum-top">
+        <div class="remain"><small>유통사업부 팀케어 잔여한도</small><div class="big ${limit && remain < 0 ? 'neg' : ''}">${limit ? won(remain) : '—'}</div></div>
+        <span class="state ${lvl}">${label}</span>
+      </div>
+      <div class="meter"><i class="${lvl === 'bad' ? 'bad' : lvl === 'warn' ? 'warn' : ''}" style="width:${pct}%"></i></div>
+      <div class="sum-grid">
+        <dl class="calc">
+          <dt>카드 총 사용 (${t.count}건, 취소 제외)</dt><dd>${won(t.used)}</dd>
+          <dt>다른 한도 사용 (제외 표시)</dt><dd class="minus">${minusWon(t.excl)}</dd>
+          <dt>수기 차감</dt><dd class="minus">${minusWon(manual)}</dd>
+          <dt class="total">팀케어 사용액</dt><dd class="total">${won(team)}</dd>
+          <dt>한도</dt><dd>${limit ? won(limit) : '미입력'}</dd>
+        </dl>
+        <dl class="calc">
+          ${byCard.map(b => `<dt>${esc(b.c.name)} ${b.c.no}</dt><dd>${won(b.net)}</dd>`).join('')}
+        </dl>
+      </div>
+    </section>
+
+    <section class="panel section">
+      <h3>수기 차감 (마이너스)</h3>
+      <form class="manual-form" id="manual-form">
+        <div class="field"><label for="memo">메모</label><input type="text" id="memo"></div>
+        <div class="field"><label for="amt">금액 (원)</label><input type="number" id="amt" min="1" step="1" required></div>
+        <button class="btn-minus" type="submit" style="align-self:end">− 빼기</button>
+      </form>
+      ${manualItems ? `<ul class="manual-list">${manualItems}</ul>` : '<p class="empty">한 건 중 일부 금액만 뺄 때 메모와 금액을 넣으세요. 건 전체는 아래 목록에서 "제외"를 누르면 돼요.</p>'}
+    </section>
+
+    <div class="cards">${byCard.map(b => cardHTML(b.c, b.list)).join('')}</div>
+  </div>`;
 }
 
 // 이벤트
-for (const card of CARDS) {
-  const el = document.getElementById('limit-' + card);
-  el.value = state.limits[card] ? state.limits[card].toLocaleString('ko-KR') : '';
-  el.addEventListener('input', () => {
-    const v = num(el.value);
-    state.limits[card] = v;
-    el.value = v ? v.toLocaleString('ko-KR') : '';
-    store.set('tc.limits', state.limits);
-    render();
-  });
-}
-document.getElementById('file').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; });
-document.getElementById('cards').addEventListener('click', e => {
-  const tg = e.target.closest('.toggle');
-  if (tg) {
-    const id = tg.dataset.id;
-    state.excluded.has(id) ? state.excluded.delete(id) : state.excluded.add(id);
-    store.set('tc.excluded', [...state.excluded].filter(k => !k.includes('sample-')));
-    render(); return;
-  }
-  const x = e.target.closest('.x');
-  if (x) { state.manual[x.dataset.card].splice(+x.dataset.i, 1); render(); }
+const limitEl = document.getElementById('limit');
+limitEl.addEventListener('input', () => {
+  const v = num(limitEl.value);
+  state.limit = v;
+  limitEl.value = v ? v.toLocaleString('ko-KR') : '';
+  render();
 });
-document.getElementById('cards').addEventListener('submit', e => {
+[0, 1].forEach(i => document.getElementById('file-' + i).addEventListener('change', e => {
+  if (e.target.files[0]) loadFile(i, e.target.files[0]);
+  e.target.value = '';
+}));
+const main = document.getElementById('main');
+main.addEventListener('click', e => {
+  const tg = e.target.closest('.toggle');
+  if (tg) { const id = tg.dataset.id; state.excluded.has(id) ? state.excluded.delete(id) : state.excluded.add(id); render(); return; }
+  const x = e.target.closest('.x');
+  if (x) { state.manual.splice(+x.dataset.i, 1); render(); }
+});
+main.addEventListener('submit', e => {
   e.preventDefault();
-  const card = e.target.dataset.card;
-  const amount = num(document.getElementById('amt-' + card).value);
+  const amount = num(document.getElementById('amt').value);
   if (amount <= 0) return;
-  state.manual[card].push({ memo: document.getElementById('memo-' + card).value.trim(), amount });
+  state.manual.push({ memo: document.getElementById('memo').value.trim(), amount });
   render();
 });
 
-state.tx = SAMPLE.tx; state.period = SAMPLE.period;
 render();
 </script>
 </body>
